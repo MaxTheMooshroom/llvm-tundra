@@ -1172,6 +1172,9 @@ void DAGTypeLegalizer::SplitVectorResult(SDNode *N, unsigned ResNo) {
     SplitVecRes_STEP_VECTOR(N, Lo, Hi);
     break;
   case ISD::SIGN_EXTEND_INREG: SplitVecRes_InregOp(N, Lo, Hi); break;
+  case ISD::ATOMIC_LOAD:
+    SplitVecRes_ATOMIC_LOAD(cast<AtomicSDNode>(N), Lo, Hi);
+    break;
   case ISD::LOAD:
     SplitVecRes_LOAD(cast<LoadSDNode>(N), Lo, Hi);
     break;
@@ -1419,6 +1422,40 @@ void DAGTypeLegalizer::SplitVectorResult(SDNode *N, unsigned ResNo) {
   // If Lo/Hi is null, the sub-method took care of registering results etc.
   if (Lo.getNode())
     SetSplitVector(SDValue(N, ResNo), Lo, Hi);
+}
+
+void DAGTypeLegalizer::SplitVecRes_ATOMIC_LOAD(AtomicSDNode *LD, SDValue &Lo,
+                                               SDValue &Hi) {
+  EVT LoVT, HiVT;
+  SDLoc dl(LD);
+  std::tie(LoVT, HiVT) = DAG.GetSplitDestVTs(LD->getValueType(0));
+
+  ISD::LoadExtType ExtType = LD->getExtensionType();
+  SDValue Ch = LD->getChain();
+  SDValue Ptr = LD->getBasePtr();
+  EVT MemoryVT = LD->getMemoryVT();
+
+  EVT LoMemVT, HiMemVT;
+  std::tie(LoMemVT, HiMemVT) = DAG.GetSplitDestVTs(MemoryVT);
+
+  EVT IntVT = EVT::getIntegerVT(*DAG.getContext(), LD->getValueType(0).getSizeInBits());
+  EVT MemIntVT = EVT::getIntegerVT(*DAG.getContext(), LD->getMemoryVT().getSizeInBits());
+  SDValue ALD = DAG.getAtomicLoad(ExtType, dl, MemIntVT, IntVT, Ch, Ptr,
+                                  LD->getMemOperand());
+
+  EVT LoIntVT = EVT::getIntegerVT(*DAG.getContext(), LoVT.getSizeInBits());
+  EVT HiIntVT = EVT::getIntegerVT(*DAG.getContext(), HiVT.getSizeInBits());
+  SDValue ExtractLo = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, LoIntVT, ALD,
+                                  DAG.getVectorIdxConstant(0, dl));
+  SDValue ExtractHi = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, HiIntVT, ALD,
+                                  DAG.getVectorIdxConstant(1, dl));
+
+  Lo = DAG.getBitcast(LoVT, ExtractLo);
+  Hi = DAG.getBitcast(HiVT, ExtractHi);
+
+  // Legalize the chain result - switch anything that used the old chain to
+  // use the new one.
+  ReplaceValueWith(SDValue(LD, 1), ALD.getValue(1));
 }
 
 void DAGTypeLegalizer::IncrementPointer(MemSDNode *N, EVT MemVT,
