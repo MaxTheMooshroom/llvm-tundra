@@ -517,6 +517,7 @@ set(LLVM_ALL_TARGETS
   Sparc
   SPIRV
   SystemZ
+  Tundra
   VE
   WebAssembly
   X86
