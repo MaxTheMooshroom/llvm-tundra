@@ -24,3 +24,5 @@ add_llvm_target(TundraCodeGen
   ADD_TO_COMPONENT
   Tundra
 )
+
+add_subdirectory(TargetInfo)
